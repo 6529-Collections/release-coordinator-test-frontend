@@ -355,7 +355,10 @@ export function verifyServiceReport(report, plan, attemptId) {
   for (const [index, expected] of plan.steps.entries()) {
     const step = report.steps[index];
     serviceAssert(
-      step.unit === expected.unit &&
+      step !== null &&
+        typeof step === "object" &&
+        !Array.isArray(step) &&
+        step.unit === expected.unit &&
         step.version === expected.version &&
         serviceHash(step.depends_on) === serviceHash(expected.depends_on) &&
         ["not-run", "passed", "blocked", "unknown", "stale"].includes(
