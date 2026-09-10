@@ -159,12 +159,23 @@ export function validateServicePlan(plan) {
     "This sample needs its four explicit service steps."
   );
   for (const step of plan.steps) {
+    const role = step.unit === "frontend" ? "frontend" : "backend";
+    const sourcePath = {
+      worker: "src/worker.mjs",
+      api: "src/api.mjs",
+      frontend: "src/render.mjs"
+    }[step.unit];
+    const version =
+      step.unit === "dbMigrationsLoop"
+        ? serviceHash(after)
+        : plan.sources[role].files[sourcePath]?.sha;
     serviceAssert(
       ["dbMigrationsLoop", "worker", "api", "frontend"].includes(step.unit) &&
         !seen.has(step.unit) &&
         Array.isArray(step.depends_on) &&
         step.depends_on.every((name) => seen.has(name)) &&
-        /^[0-9a-f]{40,64}$/u.test(step.version),
+        step.role === role &&
+        step.version === version,
       "invalid-services",
       "Services are missing, repeated, or out of dependency order.",
       "blocked"
@@ -255,6 +266,9 @@ export async function executeServiceSteps(
     report.status = "passed";
   } catch (error) {
     report.status = error instanceof ServiceError ? error.status : "unknown";
+    for (const step of report.steps) {
+      if (step.status === "running") step.status = "unknown";
+    }
     report.errors.push(
       error instanceof ServiceError
         ? { code: error.code, message: error.message }
@@ -270,19 +284,38 @@ export async function executeServiceSteps(
     } catch {
       report.database_state = { status: "unknown" };
     }
+    if (
+      report.database_state?.status !== "verified" &&
+      report.status === "passed"
+    ) {
+      report.status = "unknown";
+      report.errors.push({
+        code: "database-unverified",
+        message: "The final database state could not be verified."
+      });
+    }
     // Evidence must be saved before deleting state. A failed save leaves the
     // resources named for investigation instead of erasing the only evidence.
     report.finished_at = now();
     try {
       await save(report);
       report.cleanup = await adapter.cleanup();
-      if (report.cleanup?.status !== "removed") report.status = "unknown";
+      if (report.cleanup?.status !== "removed")
+        throw new ServiceError(
+          "cleanup-unverified",
+          "Owned sample resources could not be verified as removed."
+        );
     } catch {
       report.status = "unknown";
       report.cleanup = {
         status: "unknown",
         resources: adapter.resources?.() ?? []
       };
+      report.errors.push({
+        code: "cleanup-unverified",
+        message:
+          "Evidence saving or owned-resource cleanup requires reconciliation."
+      });
     }
     await save(report);
   }

@@ -7,7 +7,8 @@ import {
   serviceAssert,
   serviceHash,
   databaseSpec,
-  executeServiceSteps
+  executeServiceSteps,
+  validateServicePlan
 } from "./service-contract.mjs";
 
 export const serviceImages = Object.freeze({
@@ -81,6 +82,7 @@ export async function createDockerServiceAdapter(
   attemptId,
   { docker = dockerCommand, wait = delay } = {}
 ) {
+  validateServicePlan(plan);
   serviceAssert(
     /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/u.test(attemptId),
     "invalid-attempt",
@@ -96,11 +98,20 @@ export async function createDockerServiceAdapter(
     dbReady = false;
   const resources = () => [...owned];
   async function owns(name) {
-    const found = await docker(
-      ["inspect", "--format", `{{ index .Config.Labels "${label}" }}`, name],
-      { allowedCodes: [0, 1] }
-    );
-    if (found.code === 1) return false;
+    const listed = await docker([
+      "ps",
+      "--all",
+      "--quiet",
+      "--filter",
+      `name=^/${name}$`
+    ]);
+    if (!listed.stdout.trim()) return false;
+    const found = await docker([
+      "inspect",
+      "--format",
+      `{{ index .Config.Labels "${label}" }}`,
+      name
+    ]);
     serviceAssert(
       found.stdout.trim() === attemptId,
       "cleanup-unverified",
