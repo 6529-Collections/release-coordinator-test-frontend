@@ -300,11 +300,11 @@ export async function executeServiceSteps(
     try {
       await save(report);
       report.cleanup = await adapter.cleanup();
-      if (report.cleanup?.status !== "removed")
-        throw new ServiceError(
-          "cleanup-unverified",
-          "Owned sample resources could not be verified as removed."
-        );
+      serviceAssert(
+        report.cleanup?.status === "removed",
+        "cleanup-unverified",
+        "Owned sample resources could not be verified as removed."
+      );
     } catch {
       report.status = "unknown";
       report.cleanup = {
