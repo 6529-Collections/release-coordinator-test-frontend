@@ -10,7 +10,14 @@ import {
 serviceAssert(
   process.env.GITHUB_REPOSITORY ===
     "6529-Collections/release-coordinator-test-backend" &&
-    process.env.GITHUB_EVENT_NAME === "workflow_dispatch",
+    process.env.GITHUB_EVENT_NAME === "workflow_dispatch" &&
+    typeof process.env.PLAN_JSON === "string" &&
+    process.env.PLAN_JSON.length > 0 &&
+    typeof process.env.RUNNER_TEMP === "string" &&
+    path.isAbsolute(process.env.RUNNER_TEMP) &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+      process.env.ATTEMPT_ID ?? ""
+    ),
   "unsupported-runner",
   "This entry point requires the dedicated sandbox workflow."
 );

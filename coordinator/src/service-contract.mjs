@@ -113,7 +113,7 @@ export function validateServicePlan(plan) {
   for (const role of ["backend", "frontend"]) {
     const source = plan.sources?.[role];
     serviceAssert(
-      source?.repository.id === identities[role][0] &&
+      source?.repository?.id === identities[role][0] &&
         source.repository.full_name === identities[role][1] &&
         /^[0-9a-f]{40}$/u.test(source.tree) &&
         /^[0-9a-f]{40}$/u.test(source.base_commit),
@@ -317,7 +317,16 @@ export async function executeServiceSteps(
           "Evidence saving or owned-resource cleanup requires reconciliation."
       });
     }
-    await save(report);
+    try {
+      await save(report);
+    } catch {
+      report.status = "unknown";
+      report.errors.push({
+        code: "evidence-save-failed",
+        message:
+          "Final local evidence could not be saved; reconcile this attempt from the workflow result."
+      });
+    }
   }
   return report;
 }

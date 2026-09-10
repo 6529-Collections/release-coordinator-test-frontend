@@ -119,7 +119,7 @@ export async function createDockerServiceAdapter(
     );
     return true;
   }
-  async function sql(statement) {
+  async function sql(statement, timeout = 20_000) {
     const result = await docker(
       [
         "exec",
@@ -133,7 +133,7 @@ export async function createDockerServiceAdapter(
         "--skip-column-names",
         "coordinator"
       ],
-      { input: statement, timeout: 20_000 }
+      { input: statement, timeout }
     );
     return result.stdout.trim();
   }
@@ -201,8 +201,13 @@ export async function createDockerServiceAdapter(
       );
       return parsed.value;
     } finally {
-      if (await owns(name)) await docker(["rm", "--force", "--volumes", name]);
-      owned.delete(name);
+      try {
+        if (await owns(name))
+          await docker(["rm", "--force", "--volumes", name]);
+        owned.delete(name);
+      } catch {
+        // Keep ownership for final cleanup without replacing a program failure.
+      }
     }
   }
   async function row() {
@@ -265,9 +270,10 @@ export async function createDockerServiceAdapter(
         "MYSQL_DATABASE=coordinator",
         serviceImages.mysql
       ]);
-      for (let attempt = 0; attempt < 90; attempt++) {
+      // At most 20 * (3-second probe + 1-second pause), within the job limit.
+      for (let attempt = 0; attempt < 20; attempt++) {
         try {
-          await sql("SELECT 1;");
+          await sql("SELECT 1;", 3000);
           dbReady = true;
           break;
         } catch {
