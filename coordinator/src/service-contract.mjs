@@ -159,6 +159,12 @@ export function validateServicePlan(plan) {
     "This sample needs its four explicit service steps."
   );
   for (const step of plan.steps) {
+    serviceAssert(
+      step !== null && typeof step === "object" && !Array.isArray(step),
+      "invalid-services",
+      "Each service step must be an object.",
+      "blocked"
+    );
     const role = step.unit === "frontend" ? "frontend" : "backend";
     const sourcePath = {
       worker: "src/worker.mjs",
