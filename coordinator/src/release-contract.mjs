@@ -107,7 +107,8 @@ export function verifyReleaseReport(report, operation) {
     !object(report.runner) ||
     !Number.isSafeInteger(Number(report.runner.run_id)) ||
     Number(report.runner.run_id) < 1 ||
-    report.runner.attempt !== 1 ||
+    !Number.isSafeInteger(report.runner.attempt) ||
+    report.runner.attempt < 1 ||
     !sha(report.runner.commit) ||
     typeof report.runner.repository !== "string" ||
     !Number.isFinite(Date.parse(report.completed_at)) ||

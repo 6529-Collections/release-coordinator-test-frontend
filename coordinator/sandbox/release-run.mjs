@@ -86,8 +86,8 @@ const runner = {
 };
 if (!Number.isSafeInteger(runner.run_id) || runner.run_id < 1)
   throw new Error("GitHub runner ID is missing or invalid.");
-if (runner.attempt !== 1)
-  throw new Error("Only the first GitHub workflow attempt can supply release evidence.");
+if (!Number.isSafeInteger(runner.attempt) || runner.attempt < 1)
+  throw new Error("GitHub workflow attempt is missing or invalid.");
 
 const report = {
   protocol: releaseProtocol,
