@@ -1,7 +1,7 @@
 name: Sandbox checks
 on:
   pull_request:
-    branches: [main, rehearsal-target]
+    branches: [main, 1a-staging, rehearsal-target]
 permissions:
   contents: read
 jobs:
@@ -16,4 +16,5 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
-      - run: node scripts/check.mjs
+      - name: Run node scripts/check.mjs
+        run: node scripts/check.mjs

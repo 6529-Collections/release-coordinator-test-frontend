@@ -1,0 +1,49 @@
+name: Sandbox release
+run-name: Sandbox release ${{ inputs.operation_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation_id:
+        required: true
+        type: string
+      operation_json:
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-release-${{ inputs.operation_id }}
+  cancel-in-progress: false
+jobs:
+  release:
+    name: Sandbox release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out pinned runtime
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check out exact backend
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 6529-Collections/release-coordinator-test-backend
+          ref: ${{ fromJSON(inputs.operation_json).backend_commit }}
+          path: candidates/backend
+          persist-credentials: false
+      - name: Check out exact frontend
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 6529-Collections/release-coordinator-test-frontend
+          ref: ${{ fromJSON(inputs.operation_json).frontend_commit }}
+          path: candidates/frontend
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Run sandbox release operation
+        env:
+          OPERATION_ID: ${{ inputs.operation_id }}
+          OPERATION_JSON: ${{ inputs.operation_json }}
+        run: node coordinator/sandbox/release-run.mjs
