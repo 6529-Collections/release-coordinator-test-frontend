@@ -15,7 +15,7 @@ function canonical(value) {
   if (object(value))
     return Object.fromEntries(
       Object.keys(value)
-        .sort((a, b) => a.localeCompare(b))
+        .sort()
         .map((key) => [key, canonical(value[key])])
     );
   return value;

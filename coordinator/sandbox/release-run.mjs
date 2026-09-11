@@ -18,14 +18,20 @@ const load = async (relative) =>
   import(pathToFileURL(path.join(root, relative)).href);
 const checks = [];
 let status = "passed";
+const safeError = (error) =>
+  String(error?.message ?? "Unknown failure")
+    .replace(/[\p{Cc}\p{Cf}]/gu, " ")
+    .slice(0, 500);
 
 async function check(name, work) {
   try {
     await work();
     checks.push({ name, status: "passed" });
-  } catch {
+  } catch (error) {
     status = "failed";
-    checks.push({ name, status: "failed" });
+    const message = safeError(error);
+    checks.push({ name, status: "failed", message });
+    console.error(`${name}: ${message}`);
   }
 }
 
@@ -48,9 +54,13 @@ if (operation.operation === "deploy") {
         throw new Error("Database source is invalid.");
       return;
     }
-    const program = await load(
-      `candidates/backend/src/${operation.unit === "worker" ? "worker" : "api"}.mjs`
-    );
+    const programs = {
+      worker: "candidates/backend/src/worker.mjs",
+      api: "candidates/backend/src/api.mjs"
+    };
+    if (!programs[operation.unit])
+      throw new Error("Unsupported backend deployment unit.");
+    const program = await load(programs[operation.unit]);
     const result = await program.run({ row: { id: 1, value: 10 } });
     if (result?.id !== 1 || !Number.isFinite(result.value))
       throw new Error("Backend smoke check failed.");
@@ -68,6 +78,17 @@ if (operation.operation === "deploy") {
   });
 }
 
+const runner = {
+  repository: process.env.GITHUB_REPOSITORY,
+  run_id: Number(process.env.GITHUB_RUN_ID),
+  attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+  commit: process.env.GITHUB_SHA
+};
+if (!Number.isSafeInteger(runner.run_id) || runner.run_id < 1)
+  throw new Error("GitHub runner ID is missing or invalid.");
+if (runner.attempt !== 1)
+  throw new Error("Only the first GitHub workflow attempt can supply release evidence.");
+
 const report = {
   protocol: releaseProtocol,
   profile: "sandbox",
@@ -84,12 +105,7 @@ const report = {
     backend: operation.backend_commit,
     frontend: operation.frontend_commit
   },
-  runner: {
-    repository: process.env.GITHUB_REPOSITORY,
-    run_id: Number(process.env.GITHUB_RUN_ID),
-    attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
-    commit: process.env.GITHUB_SHA
-  },
+  runner,
   completed_at: new Date().toISOString()
 };
 verifyReleaseReport(report, operation);
