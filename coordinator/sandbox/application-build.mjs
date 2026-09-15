@@ -81,7 +81,9 @@ export async function start({ backendUrl, port = 0 } = {}) {
         response.end("not found");
         return;
       }
-      const backend = await fetch(new URL("/value", backendTarget));
+      const backend = await fetch(new URL("/value", backendTarget), {
+        signal: AbortSignal.timeout(10_000)
+      });
       if (!backend.ok) throw new Error("Backend request failed.");
       response.setHeader("content-type", "text/plain; charset=utf-8");
       response.end(await render({ payload: await backend.json() }));
@@ -108,7 +110,7 @@ const frontendHtml = `<!doctype html>
 async function source(root, name) {
   const value = await readFile(path.join(root, name));
   if (!value.length || value.length > 12_000)
-    throw new Error("Sandbox build source size is invalid.");
+    throw new Error(`Sandbox build source size is invalid: ${name}.`);
   return value;
 }
 
