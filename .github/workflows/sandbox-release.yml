@@ -42,8 +42,54 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
+      - id: backend-build
+        name: Build exact backend package
+        if: fromJSON(inputs.operation_json).operation == 'e2e' || fromJSON(inputs.operation_json).role == 'backend'
+        continue-on-error: true
+        working-directory: candidates/backend
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ fromJSON(inputs.operation_json).backend_commit }}
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - id: backend-artifact
+        name: Upload exact backend package
+        if: steps.backend-build.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sandbox-build-${{ inputs.operation_id }}-backend
+          path: candidates/backend/dist
+          if-no-files-found: error
+          retention-days: 7
+      - id: frontend-build
+        name: Build exact frontend package
+        if: fromJSON(inputs.operation_json).operation == 'e2e' || fromJSON(inputs.operation_json).role == 'frontend'
+        continue-on-error: true
+        working-directory: candidates/frontend
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ fromJSON(inputs.operation_json).frontend_commit }}
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - id: frontend-artifact
+        name: Upload exact frontend package
+        if: steps.frontend-build.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sandbox-build-${{ inputs.operation_id }}-frontend
+          path: candidates/frontend/dist
+          if-no-files-found: error
+          retention-days: 7
       - name: Run sandbox release operation
         env:
           OPERATION_ID: ${{ inputs.operation_id }}
           OPERATION_JSON: ${{ inputs.operation_json }}
+          BACKEND_BUILD_OUTCOME: ${{ steps.backend-build.outcome }}
+          BACKEND_ARTIFACT_OUTCOME: ${{ steps.backend-artifact.outcome }}
+          BACKEND_ARTIFACT_DIGEST: ${{ steps.backend-artifact.outputs.artifact-digest }}
+          FRONTEND_BUILD_OUTCOME: ${{ steps.frontend-build.outcome }}
+          FRONTEND_ARTIFACT_OUTCOME: ${{ steps.frontend-artifact.outcome }}
+          FRONTEND_ARTIFACT_DIGEST: ${{ steps.frontend-artifact.outputs.artifact-digest }}
         run: node coordinator/sandbox/release-run.mjs

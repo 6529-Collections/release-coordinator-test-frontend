@@ -16,5 +16,18 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
-      - name: Run node scripts/check.mjs
-        run: node scripts/check.mjs
+      - name: Install locked package
+        run: npm ci --ignore-scripts
+      - name: Run application checks
+        run: npm test
+      - name: Build application artifact
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ github.sha }}
+        run: npm run build
+      - name: Upload application artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sandbox-pr-${{ github.event.pull_request.number }}-${{ github.run_attempt }}-frontend
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
