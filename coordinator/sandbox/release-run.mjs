@@ -129,8 +129,12 @@ export async function runSandboxReleaseOperation(
       try {
         backend = await backendModule.start();
         frontend = await frontendModule.start({ backendUrl: backend.url });
-        const health = await fetch(`${backend.url}/health`);
-        const rendered = await fetch(`${frontend.url}/`);
+        const health = await fetch(`${backend.url}/health`, {
+          signal: AbortSignal.timeout(10_000)
+        });
+        const rendered = await fetch(`${frontend.url}/`, {
+          signal: AbortSignal.timeout(10_000)
+        });
         if (
           !health.ok ||
           (await health.text()) !== "ok" ||
