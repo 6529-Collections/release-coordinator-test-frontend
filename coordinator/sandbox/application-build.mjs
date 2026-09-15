@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import {
   mkdir,
+  open,
   readFile,
   readdir,
   rm,
-  stat,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -118,11 +118,16 @@ async function describe(directory, names) {
   return Promise.all(
     names.map(async (name) => {
       const file = path.join(directory, name);
-      const info = await stat(file);
-      if (!info.isFile())
-        throw new Error("Sandbox build output is not a file.");
-      const value = await readFile(file);
-      return { path: name, sha256: digest(value), bytes: value.length };
+      const handle = await open(file, "r");
+      try {
+        const info = await handle.stat();
+        if (!info.isFile())
+          throw new Error(`Sandbox build output is not a file: ${name}.`);
+        const value = await handle.readFile();
+        return { path: name, sha256: digest(value), bytes: value.length };
+      } finally {
+        await handle.close();
+      }
     })
   );
 }
