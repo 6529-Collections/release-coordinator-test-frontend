@@ -22,6 +22,14 @@ const safeError = (error) => {
   return message.slice(0, splitPair ? limit - 1 : limit);
 };
 
+export async function closeServers(frontend, backend) {
+  try {
+    await frontend?.close();
+  } finally {
+    await backend?.close();
+  }
+}
+
 export async function runSandboxReleaseOperation(
   input,
   {
@@ -133,8 +141,7 @@ export async function runSandboxReleaseOperation(
             "The built applications differ from the baseline contract."
           );
       } finally {
-        await frontend?.close();
-        await backend?.close();
+        await closeServers(frontend, backend);
       }
     });
   }
