@@ -1,0 +1,10 @@
+{
+  "name": "release-coordinator-sandbox-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/check.mjs",
+    "build": "node coordinator/sandbox/application-build.mjs frontend"
+  }
+}
