@@ -122,7 +122,7 @@ async function describe(directory, names) {
       try {
         const info = await handle.stat();
         if (!info.isFile())
-          throw new Error("Sandbox build output is not a file.");
+          throw new Error(`Sandbox build output is not a file: ${name}.`);
         const value = await handle.readFile();
         return { path: name, sha256: digest(value), bytes: value.length };
       } finally {
