@@ -1,5 +1,5 @@
 # Coordinator sample frontend
 
-Small executable programs and temporary MySQL checks for the sandbox only. No product credentials or deployments.
+Small executable programs, locked npm builds, short-lived GitHub Actions artifacts and temporary test services for the sandbox only. No product credentials, environments or deployments are used.
 
-The coordinator directory is a generated, exact source bundle from the standalone Coordinator; edit the source project and republish the bundle, never maintain a second implementation.
+The coordinator directory is generated from the standalone Coordinator; edit the source project and republish the bundle instead of maintaining a second implementation.
