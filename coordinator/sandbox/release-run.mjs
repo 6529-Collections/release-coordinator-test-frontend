@@ -61,7 +61,8 @@ export async function runSandboxReleaseOperation(
 
   for (const role of requiredRoles) {
     let manifest;
-    if (outcomes[role]?.build === "success")
+    const buildOutcome = outcomes[role]?.build;
+    if (buildOutcome === "success")
       manifest = await check(`build:${role}`, () =>
         verifyApplicationBuild(
           path.join(root, "candidates", role),
@@ -71,7 +72,9 @@ export async function runSandboxReleaseOperation(
       );
     else
       await check(`build:${role}`, () => {
-        throw new Error(`${role} npm build failed.`);
+        throw new Error(
+          `${role} npm build ${buildOutcome === "skipped" || !buildOutcome ? "was skipped" : "failed"}.`
+        );
       });
     if (!manifest) continue;
     const artifact = await check(`artifact:${role}`, () => {
