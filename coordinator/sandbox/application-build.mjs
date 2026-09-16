@@ -22,7 +22,7 @@ const backendServer = `import { createServer } from "node:http";
 import { run as runWorker } from "./worker.mjs";
 import { run as runApi } from "./api.mjs";
 
-export async function start({ port = 0 } = {}) {
+export async function start({ port = 0, rowValue = 10 } = {}) {
   const server = createServer(async (request, response) => {
     try {
       if (request.url === "/health") {
@@ -34,7 +34,7 @@ export async function start({ port = 0 } = {}) {
         response.end("not found");
         return;
       }
-      const row = await runWorker({ row: { id: 1, value: 10 } });
+      const row = await runWorker({ row: { id: 1, value: rowValue } });
       const payload = await runApi({ row });
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(payload));
