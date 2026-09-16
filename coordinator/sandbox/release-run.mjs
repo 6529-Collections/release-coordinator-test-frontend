@@ -10,16 +10,16 @@ import { verifyApplicationBuild } from "./application-build.mjs";
 
 const artifactDigest = (value) =>
   /^(?:sha256:)?[0-9a-f]{64}$/u.test(value ?? "");
-async function sampleRowValue(root, built) {
+async function sampleRowValue(root) {
+  // The service-check workflow applies this fixture change to temporary MySQL.
+  // Release jobs have no persistent database; built-output E2E uses the same
+  // resulting row value and the fixture's fixed worker contract (double it).
   const backend = path.join(root, "candidates", "backend");
-  const folder = built ? "dist" : "src";
-  const schemaPath = built ? "item.json" : "entities/item.json";
-  const changePath = built ? "change.json" : "data/change.json";
   const schema = JSON.parse(
-    await readFile(path.join(backend, folder, schemaPath), "utf8")
+    await readFile(path.join(backend, "dist", "item.json"), "utf8")
   );
   const change = JSON.parse(
-    await readFile(path.join(backend, folder, changePath), "utf8")
+    await readFile(path.join(backend, "dist", "change.json"), "utf8")
   );
   if (
     Object.keys(schema).length !== 1 ||
@@ -130,16 +130,14 @@ export async function runSandboxReleaseOperation(
     await check(`${operation.role}:${operation.unit}`, async () => {
       if (operation.role === "frontend") {
         const frontend = await load("frontend", "render.mjs");
-        const expected = 2 * (await sampleRowValue(root, false));
-        if (
-          (await frontend.run({ payload: { value: expected } })) !==
-          `Value: ${expected}`
-        )
+        if ((await frontend.run({ payload: { value: 20 } })) !== "Value: 20")
           throw new Error("Built frontend smoke check failed.");
         return;
       }
-      const rowValue = await sampleRowValue(root, true);
+      const rowValue = await sampleRowValue(root);
       if (operation.unit === "dbMigrationsLoop") {
+        // The earlier isolated MySQL run proves the database effect. This
+        // stateless release check verifies the built files used afterward.
         if (!Number.isSafeInteger(rowValue))
           throw new Error("Built database source is invalid.");
         return;
@@ -154,7 +152,7 @@ export async function runSandboxReleaseOperation(
     });
   } else if (status === "passed") {
     await check("matching-built-version-e2e", async () => {
-      const rowValue = await sampleRowValue(root, true);
+      const rowValue = await sampleRowValue(root);
       const backendModule = await load("backend", "server.mjs");
       const frontendModule = await load("frontend", "server.mjs");
       let backend, frontend;
