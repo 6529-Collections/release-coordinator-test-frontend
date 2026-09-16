@@ -142,11 +142,14 @@ export async function runSandboxReleaseOperation(
           throw new Error("Built database source is invalid.");
         return;
       }
-      const programs = { worker: "worker.mjs", api: "api.mjs" };
-      if (!programs[operation.unit])
+      if (!["worker", "api"].includes(operation.unit))
         throw new Error("Unsupported backend deployment unit.");
-      const program = await load("backend", programs[operation.unit]);
-      const result = await program.run({ row: { id: 1, value: rowValue } });
+      const worker = await load("backend", "worker.mjs");
+      const processed = await worker.run({ row: { id: 1, value: rowValue } });
+      const result =
+        operation.unit === "worker"
+          ? processed
+          : await (await load("backend", "api.mjs")).run({ row: processed });
       if (result?.id !== 1 || result.value !== 2 * rowValue)
         throw new Error("Built backend smoke check failed.");
     });
