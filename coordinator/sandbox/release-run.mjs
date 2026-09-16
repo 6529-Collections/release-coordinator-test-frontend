@@ -10,6 +10,34 @@ import { verifyApplicationBuild } from "./application-build.mjs";
 
 const artifactDigest = (value) =>
   /^(?:sha256:)?[0-9a-f]{64}$/u.test(value ?? "");
+async function sampleRowValue(root, built) {
+  const backend = path.join(root, "candidates", "backend");
+  const folder = built ? "dist" : "src";
+  const schemaPath = built ? "item.json" : "entities/item.json";
+  const changePath = built ? "change.json" : "data/change.json";
+  const schema = JSON.parse(
+    await readFile(path.join(backend, folder, schemaPath), "utf8")
+  );
+  const change = JSON.parse(
+    await readFile(path.join(backend, folder, changePath), "utf8")
+  );
+  if (
+    Object.keys(schema).length !== 1 ||
+    ![1, 2].includes(schema.version) ||
+    Object.keys(change).some(
+      (key) => !["id", "increment", "fail_after_schema"].includes(key)
+    ) ||
+    !/^[a-z][a-z0-9-]{0,60}$/u.test(change.id ?? "") ||
+    !Number.isSafeInteger(change.increment) ||
+    change.increment < 0 ||
+    change.increment > 100 ||
+    change.fail_after_schema !== false
+  )
+    throw new Error(
+      "Built database change cannot produce a verified sample row."
+    );
+  return 10 + change.increment;
+}
 const safeError = (error) => {
   const message = String(error?.message ?? "Unknown failure").replace(
     /[\p{Cc}\p{Cf}]/gu,
@@ -102,20 +130,17 @@ export async function runSandboxReleaseOperation(
     await check(`${operation.role}:${operation.unit}`, async () => {
       if (operation.role === "frontend") {
         const frontend = await load("frontend", "render.mjs");
-        if ((await frontend.run({ payload: { value: 20 } })) !== "Value: 20")
+        const expected = 2 * (await sampleRowValue(root, false));
+        if (
+          (await frontend.run({ payload: { value: expected } })) !==
+          `Value: ${expected}`
+        )
           throw new Error("Built frontend smoke check failed.");
         return;
       }
+      const rowValue = await sampleRowValue(root, true);
       if (operation.unit === "dbMigrationsLoop") {
-        const base = path.join(root, "candidates", "backend", "dist");
-        const schema = JSON.parse(await readFile(path.join(base, "item.json")));
-        const change = JSON.parse(
-          await readFile(path.join(base, "change.json"))
-        );
-        if (
-          !Number.isSafeInteger(schema.version) ||
-          typeof change.id !== "string"
-        )
+        if (!Number.isSafeInteger(rowValue))
           throw new Error("Built database source is invalid.");
         return;
       }
@@ -123,17 +148,18 @@ export async function runSandboxReleaseOperation(
       if (!programs[operation.unit])
         throw new Error("Unsupported backend deployment unit.");
       const program = await load("backend", programs[operation.unit]);
-      const result = await program.run({ row: { id: 1, value: 10 } });
-      if (result?.id !== 1 || !Number.isFinite(result.value))
+      const result = await program.run({ row: { id: 1, value: rowValue } });
+      if (result?.id !== 1 || result.value !== 2 * rowValue)
         throw new Error("Built backend smoke check failed.");
     });
   } else if (status === "passed") {
     await check("matching-built-version-e2e", async () => {
+      const rowValue = await sampleRowValue(root, true);
       const backendModule = await load("backend", "server.mjs");
       const frontendModule = await load("frontend", "server.mjs");
       let backend, frontend;
       try {
-        backend = await backendModule.start();
+        backend = await backendModule.start({ rowValue });
         frontend = await frontendModule.start({ backendUrl: backend.url });
         const health = await fetch(`${backend.url}/health`, {
           signal: AbortSignal.timeout(10_000)
@@ -145,7 +171,7 @@ export async function runSandboxReleaseOperation(
           !health.ok ||
           (await health.text()) !== "ok" ||
           !rendered.ok ||
-          (await rendered.text()) !== "Value: 20"
+          (await rendered.text()) !== `Value: ${2 * rowValue}`
         )
           throw new Error(
             "The built applications differ from the baseline contract."
