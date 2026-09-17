@@ -1,12 +1,20 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  monitoringTemplate,
+  releaseBuildRoles,
+  releaseBuildSourceRole,
   validateReleaseOperation,
   verifyReleaseReport,
   releaseProtocol
 } from "../src/release-contract.mjs";
-import { verifyApplicationBuild } from "./application-build.mjs";
+import {
+  validateMonitoringDeploy,
+  validateMonitoringInventory,
+  verifyApplicationBuild
+} from "./application-build.mjs";
 
 const artifactDigest = (value) =>
   /^(?:sha256:)?[0-9a-f]{64}$/u.test(value ?? "");
@@ -49,6 +57,12 @@ const safeError = (error) => {
     /[\uDC00-\uDFFF]/u.test(message[limit] ?? "");
   return message.slice(0, splitPair ? limit - 1 : limit);
 };
+// Monitoring builds live inside the exact backend checkout, like the real
+// backend's separate ops/monitoring package.
+const buildRoot = (root, role) =>
+  role === "monitoring"
+    ? path.join(root, "candidates", "backend", "ops", "monitoring")
+    : path.join(root, "candidates", role);
 
 export async function closeServers(frontend, backend) {
   try {
@@ -64,15 +78,16 @@ export async function runSandboxReleaseOperation(
     root = process.cwd(),
     runner,
     outcomes = {},
+    ref = null,
     now = () => new Date().toISOString()
   } = {}
 ) {
   const operation = validateReleaseOperation(input);
-  const requiredRoles =
-    operation.operation === "e2e" ? ["backend", "frontend"] : [operation.role];
+  const requiredRoles = releaseBuildRoles(operation);
   const checks = [];
   const builds = {};
   let status = "passed";
+  let installed = null;
   const check = async (name, work) => {
     try {
       const result = await work();
@@ -87,15 +102,25 @@ export async function runSandboxReleaseOperation(
     }
   };
 
+  if (operation.operation === "monitoring")
+    // The real backend deploys monitoring only from commits on main; the
+    // sample workflow keeps that rule so the ordering proof stays honest.
+    await check("monitoring:source", () => {
+      if (ref !== "refs/heads/main")
+        throw new Error(
+          "Sample monitoring deploys only from the test main branch."
+        );
+    });
+
   for (const role of requiredRoles) {
     let manifest;
     const buildOutcome = outcomes[role]?.build;
     if (buildOutcome === "success")
       manifest = await check(`build:${role}`, () =>
         verifyApplicationBuild(
-          path.join(root, "candidates", role),
+          buildRoot(root, role),
           role,
-          operation[`${role}_commit`]
+          operation[`${releaseBuildSourceRole(role)}_commit`]
         )
       );
     else
@@ -126,7 +151,37 @@ export async function runSandboxReleaseOperation(
     import(
       pathToFileURL(path.join(root, "candidates", role, "dist", relative)).href
     );
-  if (status === "passed" && operation.operation === "deploy") {
+  if (status === "passed" && operation.operation === "monitoring") {
+    const environment = operation.monitoring_environment;
+    await check(`monitoring:${environment}`, async () => {
+      const dist = path.join(buildRoot(root, "monitoring"), "dist");
+      const deploy = validateMonitoringDeploy(
+        JSON.parse(await readFile(path.join(dist, "deploy.json"), "utf8"))
+      );
+      const template = monitoringTemplate(environment);
+      const text = await readFile(path.join(dist, template));
+      validateMonitoringInventory(
+        JSON.parse(text.toString("utf8")),
+        environment
+      );
+      const file = builds.monitoring.manifest.files.find(
+        (value) => value.path === template
+      );
+      const sha256 = createHash("sha256").update(text).digest("hex");
+      if (!file || file.sha256 !== sha256)
+        throw new Error("Built monitoring template differs from its manifest.");
+      if (deploy.fail_environment === environment)
+        throw new Error(
+          `Controlled monitoring deployment failure for ${environment}.`
+        );
+      installed = {
+        environment,
+        source_commit: operation.backend_commit,
+        template,
+        sha256
+      };
+    });
+  } else if (status === "passed" && operation.operation === "deploy") {
     await check(`${operation.role}:${operation.unit}`, async () => {
       if (operation.role === "frontend") {
         const frontend = await load("frontend", "render.mjs");
@@ -196,6 +251,9 @@ export async function runSandboxReleaseOperation(
     status,
     checks,
     builds,
+    ...(operation.operation === "monitoring"
+      ? { installed: status === "passed" ? installed : null }
+      : {}),
     versions: {
       backend: operation.backend_commit,
       frontend: operation.frontend_commit
@@ -223,7 +281,7 @@ if (direct) {
     commit: process.env.GITHUB_SHA
   };
   const outcomes = Object.fromEntries(
-    ["backend", "frontend"].map((role) => [
+    ["backend", "frontend", "monitoring"].map((role) => [
       role,
       {
         build: process.env[`${role.toUpperCase()}_BUILD_OUTCOME`],
@@ -234,7 +292,8 @@ if (direct) {
   );
   const report = await runSandboxReleaseOperation(operation, {
     runner,
-    outcomes
+    outcomes,
+    ref: process.env.GITHUB_REF ?? null
   });
   console.log(
     `COORDINATOR_RELEASE_RESULT:${Buffer.from(JSON.stringify(report)).toString("base64url")}`
