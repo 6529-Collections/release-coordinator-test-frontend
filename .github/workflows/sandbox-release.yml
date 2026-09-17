@@ -44,7 +44,7 @@ jobs:
           node-version: 22
       - id: backend-build
         name: Build exact backend package
-        if: fromJSON(inputs.operation_json).operation == 'e2e' || fromJSON(inputs.operation_json).role == 'backend'
+        if: fromJSON(inputs.operation_json).operation == 'e2e' || (fromJSON(inputs.operation_json).operation == 'deploy' && fromJSON(inputs.operation_json).role == 'backend')
         continue-on-error: true
         working-directory: candidates/backend
         env:
@@ -64,7 +64,7 @@ jobs:
           retention-days: 7
       - id: frontend-build
         name: Build exact frontend package
-        if: fromJSON(inputs.operation_json).operation == 'e2e' || fromJSON(inputs.operation_json).role == 'frontend'
+        if: fromJSON(inputs.operation_json).operation == 'e2e' || (fromJSON(inputs.operation_json).operation == 'deploy' && fromJSON(inputs.operation_json).role == 'frontend')
         continue-on-error: true
         working-directory: candidates/frontend
         env:
@@ -82,6 +82,26 @@ jobs:
           path: candidates/frontend/dist
           if-no-files-found: error
           retention-days: 7
+      - id: monitoring-build
+        name: Build exact monitoring package
+        if: fromJSON(inputs.operation_json).operation == 'monitoring'
+        continue-on-error: true
+        working-directory: candidates/backend/ops/monitoring
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ fromJSON(inputs.operation_json).backend_commit }}
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - id: monitoring-artifact
+        name: Upload exact monitoring package
+        if: steps.monitoring-build.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sandbox-build-${{ inputs.operation_id }}-monitoring
+          path: candidates/backend/ops/monitoring/dist
+          if-no-files-found: error
+          retention-days: 7
       - name: Run sandbox release operation
         env:
           OPERATION_ID: ${{ inputs.operation_id }}
@@ -92,4 +112,7 @@ jobs:
           FRONTEND_BUILD_OUTCOME: ${{ steps.frontend-build.outcome }}
           FRONTEND_ARTIFACT_OUTCOME: ${{ steps.frontend-artifact.outcome }}
           FRONTEND_ARTIFACT_DIGEST: ${{ steps.frontend-artifact.outputs.artifact-digest }}
+          MONITORING_BUILD_OUTCOME: ${{ steps.monitoring-build.outcome }}
+          MONITORING_ARTIFACT_OUTCOME: ${{ steps.monitoring-artifact.outcome }}
+          MONITORING_ARTIFACT_DIGEST: ${{ steps.monitoring-artifact.outputs.artifact-digest }}
         run: node coordinator/sandbox/release-run.mjs

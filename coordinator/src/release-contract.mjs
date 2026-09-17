@@ -29,8 +29,19 @@ export const releaseHash = (value) =>
 export const releaseProtocol = 1;
 export const releaseBuildProtocol = 1;
 export const releaseEnvironments = ["staging", "prod"];
-export const releaseOperations = ["deploy", "e2e"];
+export const releaseOperations = ["deploy", "e2e", "monitoring"];
 export const releaseBackendUnits = ["dbMigrationsLoop", "worker", "api"];
+// The sample backend deploys operational monitoring only from test main, for
+// both monitoring environments, like the real backend workflow. A monitoring
+// operation therefore always belongs to the prod release stage.
+export const releaseMonitoringEnvironments = ["staging", "prod"];
+export const releaseMonitoringUnit = "monitoring";
+export const releaseMonitoringPaths = Object.freeze([
+  "ops/monitoring/src/alarms.json",
+  "ops/monitoring/src/deploy.json",
+  "ops/monitoring/monitoring-prod.json",
+  "ops/monitoring/monitoring-staging.json"
+]);
 export const releaseBuildFiles = Object.freeze({
   backend: Object.freeze([
     "api.mjs",
@@ -39,8 +50,23 @@ export const releaseBuildFiles = Object.freeze({
     "server.mjs",
     "worker.mjs"
   ]),
-  frontend: Object.freeze(["index.html", "render.mjs", "server.mjs"])
+  frontend: Object.freeze(["index.html", "render.mjs", "server.mjs"]),
+  monitoring: Object.freeze([
+    "deploy.json",
+    "monitoring-prod.json",
+    "monitoring-staging.json"
+  ])
 });
+export const releaseBuildSourceRole = (role) =>
+  role === "monitoring" ? "backend" : role;
+export const releaseBuildRoles = (operation) =>
+  operation.operation === "e2e"
+    ? ["backend", "frontend"]
+    : operation.operation === "monitoring"
+      ? ["monitoring"]
+      : [operation.role];
+export const monitoringTemplate = (environment) =>
+  `monitoring-${environment}.json`;
 
 export function makeReleaseBuild(value) {
   const contents = {
@@ -91,7 +117,11 @@ export function makeReleaseOperation(value) {
     role: value.role ?? null,
     unit: value.unit ?? null,
     backend_commit: value.backend_commit,
-    frontend_commit: value.frontend_commit
+    frontend_commit: value.frontend_commit,
+    // Older saved operations have no monitoring field; keep their fingerprints.
+    ...(value.operation === "monitoring"
+      ? { monitoring_environment: value.monitoring_environment }
+      : {})
   };
   const operation = { ...contents, fingerprint: releaseHash(contents) };
   validateReleaseOperation(operation);
@@ -122,16 +152,44 @@ export function validateReleaseOperation(value) {
         (value.role === "frontend"
           ? value.unit === "frontend"
           : releaseBackendUnits.includes(value.unit))
-      ))
+      )) ||
+    (value.operation === "monitoring"
+      ? !(
+          value.role === "backend" &&
+          value.unit === releaseMonitoringUnit &&
+          value.environment === "prod" &&
+          releaseMonitoringEnvironments.includes(value.monitoring_environment)
+        )
+      : Object.hasOwn(value, "monitoring_environment"))
   )
     throw new Error("Invalid sandbox release operation.");
   return value;
 }
 
+function installedMatches(report, operation) {
+  const installed = report.installed;
+  if (operation.operation !== "monitoring")
+    return !Object.hasOwn(report, "installed");
+  if (report.status !== "passed")
+    return installed === null || installed === undefined;
+  const template = monitoringTemplate(operation.monitoring_environment);
+  const file = report.builds?.monitoring?.manifest?.files?.find(
+    (value) => value.path === template
+  );
+  return (
+    object(installed) &&
+    Object.keys(installed).length === 4 &&
+    installed.environment === operation.monitoring_environment &&
+    installed.source_commit === operation.backend_commit &&
+    installed.template === template &&
+    hash(installed.sha256) &&
+    installed.sha256 === file?.sha256
+  );
+}
+
 export function verifyReleaseReport(report, operation) {
   validateReleaseOperation(operation);
-  const requiredBuildRoles =
-    operation.operation === "e2e" ? ["backend", "frontend"] : [operation.role];
+  const requiredBuildRoles = releaseBuildRoles(operation);
   const buildEntries = object(report?.builds)
     ? Object.entries(report.builds)
     : [];
@@ -140,8 +198,9 @@ export function verifyReleaseReport(report, operation) {
       return (
         requiredBuildRoles.includes(role) &&
         object(build) &&
-        validateReleaseBuild(build.manifest)?.source_commit ===
-          operation[`${role}_commit`] &&
+        validateReleaseBuild(build.manifest)?.role === role &&
+        build.manifest.source_commit ===
+          operation[`${releaseBuildSourceRole(role)}_commit`] &&
         object(build.artifact) &&
         build.artifact.name ===
           `sandbox-build-${operation.operation_id}-${role}` &&
@@ -176,6 +235,7 @@ export function verifyReleaseReport(report, operation) {
     (report.status === "passed" &&
       (buildEntries.length !== requiredBuildRoles.length ||
         requiredBuildRoles.some((role) => !report.builds[role]))) ||
+    !installedMatches(report, operation) ||
     !object(report.versions) ||
     report.versions.backend !== operation.backend_commit ||
     report.versions.frontend !== operation.frontend_commit ||
