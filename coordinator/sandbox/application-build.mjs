@@ -264,6 +264,9 @@ export function validateMonitoringInventory(value, environment) {
 }
 
 async function readMonitoringSources(root) {
+  // The package lives at ops/monitoring inside the sample backend, like the
+  // real one; if that layout ever changes, the bounded source reads fail
+  // instead of silently generating an empty inventory.
   const catalog = parseJson(
     await source(
       root,

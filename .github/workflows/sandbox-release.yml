@@ -11,8 +11,11 @@ on:
         type: string
 permissions:
   contents: read
+# One lock per environment, like the real deploy workflows: one run holds it,
+# one more waits, and a third arrival cancels the waiting one. The Coordinator
+# therefore waits for a quiet workflow before it dispatches.
 concurrency:
-  group: sandbox-release-${{ inputs.operation_id }}
+  group: sandbox-release-${{ fromJSON(inputs.operation_json).environment }}
   cancel-in-progress: false
 jobs:
   release:
