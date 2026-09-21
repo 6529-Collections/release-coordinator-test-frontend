@@ -1,0 +1,105 @@
+name: Web Deploy - PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_note_opt_out:
+        description: Suppress autonomous release notes only when explicitly requested by the user
+        type: boolean
+        required: false
+        default: false
+      expected_source_sha:
+        description: Exact reviewed source commit; fail if main resolves differently
+        type: string
+        required: false
+        default: ""
+
+run-name: Production deploy ${{ github.sha }}
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: web-deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  verify-expected-source:
+    name: Verify expected source commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse a source commit that differs from the reviewed one
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          if [ -n "$EXPECTED_SOURCE_SHA" ]; then
+            [[ "$EXPECTED_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+            test "$EXPECTED_SOURCE_SHA" = "$GITHUB_SHA"
+          fi
+
+  build-production-artifact:
+    name: Build exact production artifact
+    needs: verify-expected-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.17.1"
+      - name: Install locked package
+        run: npm ci --ignore-scripts
+      - name: Check and build the exact sample frontend
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          npm test
+          npm run build
+      - name: Upload exact production artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-frontend-${{ github.sha }}-${{ github.run_id }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 30
+
+  build-upload-deploy:
+    name: Deploy verified production artifact
+    needs: build-production-artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.17.1"
+      - name: Download exact production artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: production-frontend-${{ github.sha }}-${{ github.run_id }}
+          path: fake-deployment/dist
+      - name: Record the fake production deployment
+        run: |
+          node scripts/fake-deployment-evidence.mjs create \
+            frontend prod "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            .github/workflows/build-upload-deploy-prod.yml - \
+            fake-deployment/dist/build-manifest.json \
+            fake-deployment/deployment-evidence.json
+      - name: Upload fake production deployment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fake-production-deployment-${{ github.run_id }}
+          path: fake-deployment
+          if-no-files-found: error
+          retention-days: 30

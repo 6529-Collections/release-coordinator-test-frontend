@@ -1,0 +1,85 @@
+name: Production E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      automatic_deploy_run_id:
+        description: Successful Web Deploy - PROD run ID; supplied automatically, required for a manual rerun
+        type: string
+        required: true
+      scope:
+        description: Post-deploy validation or the daily canary pack set
+        type: choice
+        options: [post-deploy, canary]
+        default: post-deploy
+
+permissions:
+  actions: read
+  contents: read
+
+run-name: Production E2E ${{ inputs.scope == 'canary' && format('canary {0}', inputs.automatic_deploy_run_id) || format('automatic {0}', inputs.automatic_deploy_run_id) }}
+
+concurrency:
+  group: production-e2e
+  cancel-in-progress: false
+
+jobs:
+  readonly:
+    name: Production read-only E2E packs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve exact deployed SHA
+        id: source
+        env:
+          DEPLOY_RUN_ID: ${{ inputs.automatic_deploy_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$DEPLOY_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${DEPLOY_RUN_ID}" > "$RUNNER_TEMP/deploy-run.json"
+          deployed_sha="$(jq -er --arg repository "$GITHUB_REPOSITORY" '
+            select(
+              .path == ".github/workflows/build-upload-deploy-prod.yml" and
+              .event == "workflow_dispatch" and
+              .head_branch == "main" and
+              .status == "completed" and
+              .conclusion == "success" and
+              .repository.full_name == $repository and
+              .head_repository.full_name == $repository and
+              (.head_sha | test("^[a-f0-9]{40}$"))
+            ) | .head_sha
+          ' "$RUNNER_TEMP/deploy-run.json")"
+          run_attempt="$(jq -er '.run_attempt' "$RUNNER_TEMP/deploy-run.json")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${DEPLOY_RUN_ID}/attempts/${run_attempt}/jobs?per_page=100" > "$RUNNER_TEMP/deploy-jobs.json"
+          jq -e '[.jobs[] | select(.name == "Deploy verified production artifact" and .status == "completed" and .conclusion == "success")] | length == 1' "$RUNNER_TEMP/deploy-jobs.json" >/dev/null
+          echo "sha=$deployed_sha" >> "$GITHUB_OUTPUT"
+      - name: Check out exact deployed source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.17.1"
+      - name: Download the selected fake deployment
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: fake-production-deployment-${{ inputs.automatic_deploy_run_id }}
+          path: fake-deployment
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.automatic_deploy_run_id }}
+      - name: Verify and test the selected fake deployment
+        env:
+          DEPLOYED_SHA: ${{ steps.source.outputs.sha }}
+          DEPLOY_RUN_ID: ${{ inputs.automatic_deploy_run_id }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$DEPLOYED_SHA"
+          node scripts/fake-deployment-evidence.mjs verify \
+            frontend prod "$DEPLOYED_SHA" "$DEPLOY_RUN_ID" \
+            .github/workflows/build-upload-deploy-prod.yml - \
+            fake-deployment/dist/build-manifest.json \
+            fake-deployment/deployment-evidence.json
+          node --input-type=module -e 'const { run } = await import("./fake-deployment/dist/render.mjs"); if (await run({payload:{value:20}}) !== "Value: 20") process.exit(1)'

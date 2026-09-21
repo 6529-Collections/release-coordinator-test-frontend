@@ -1,0 +1,82 @@
+name: Web Deploy - STAGING
+
+on:
+  push:
+    branches: [1a-staging]
+    paths-ignore: ["ops/**"]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-staging-artifact:
+    name: Build exact staging artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require the canonical staging branch
+        run: test "$GITHUB_REF" = refs/heads/1a-staging
+      - name: Check out exact staging SHA
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.17.1"
+      - name: Install locked package
+        run: npm ci --ignore-scripts
+      - name: Check and build the exact sample frontend
+        env:
+          SANDBOX_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          npm test
+          npm run build
+      - name: Upload exact staging artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: staging-frontend-${{ github.run_id }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy-staging:
+    name: Deploy exact staging artifact
+    needs: build-staging-artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    steps:
+      - name: Check out exact staging SHA
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22.17.1"
+      - name: Download exact staging artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: staging-frontend-${{ github.run_id }}
+          path: fake-deployment/dist
+      - name: Record the fake staging deployment
+        run: |
+          node scripts/fake-deployment-evidence.mjs create \
+            frontend staging "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            .github/workflows/deploy-staging.yml - \
+            fake-deployment/dist/build-manifest.json \
+            fake-deployment/deployment-evidence.json
+      - name: Upload fake staging deployment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fake-staging-deployment-${{ github.run_id }}
+          path: fake-deployment
+          if-no-files-found: error
+          retention-days: 30
