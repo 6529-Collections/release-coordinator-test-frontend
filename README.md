@@ -10,4 +10,6 @@ The repository also exposes the Coordinator-facing workflow contract used by the
 
 These workflows are a safe interface mirror, not a product deployment. They do not use AWS, the real website, product secrets, or the real E2E suites. The daily production canary schedule is intentionally not mirrored because the Coordinator does not dispatch or depend on it. The older `sandbox-release.yml` remains available while the Coordinator is taught to use the mirrored interface.
 
+The real `scope` dispatch input is preserved. In this sample, both `post-deploy` and `canary` verify the same fake deployment artifact; only the product repository owns the broader canary pack behavior.
+
 The coordinator directory is generated from the standalone Coordinator; edit the source project and republish the bundle instead of maintaining a second implementation.
