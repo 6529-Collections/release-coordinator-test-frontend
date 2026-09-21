@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'yaml';
 import { checkSample } from '../coordinator/sandbox/check.mjs';
 
 const workflow = async (name) =>
   parse(await readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
 const same = (actual, expected, label) => {
-  if (JSON.stringify(actual) !== JSON.stringify(expected))
+  if (!isDeepStrictEqual(actual, expected))
     throw new Error(`${label} no longer matches the mirrored workflow contract.`);
 };
 
