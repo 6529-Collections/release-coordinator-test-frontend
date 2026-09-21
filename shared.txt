@@ -1,3 +1,2 @@
 original
 product workflow adapter success frontend
-product workflow adapter recovery frontend
