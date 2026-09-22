@@ -1,9 +1,6 @@
 export function run({ payload }) {
   const value = Number(payload.value);
-  if (
-    import.meta.url.includes("/dist/") &&
-    process.env.SELECTED_PACK === "all"
-  )
+  if (import.meta.url.includes("/dist/") && "id" in payload)
     return `Controlled E2E failure: ${value}`;
   return `Value: ${value}`;
 }
