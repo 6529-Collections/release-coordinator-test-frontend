@@ -31,9 +31,8 @@ export const releaseBuildProtocol = 1;
 export const releaseEnvironments = ["staging", "prod"];
 export const releaseOperations = ["deploy", "e2e", "monitoring"];
 export const releaseBackendUnits = ["dbMigrationsLoop", "worker", "api"];
-// The sample backend deploys operational monitoring only from test main, for
-// both monitoring environments, like the real backend workflow. A monitoring
-// operation therefore always belongs to the prod release stage.
+// New monitoring operations use the branch matching their environment. Saved
+// v1 operations may still have staging monitoring in the prod release stage.
 export const releaseMonitoringEnvironments = ["staging", "prod"];
 export const releaseMonitoringUnit = "monitoring";
 export const releaseMonitoringPaths = Object.freeze([
@@ -157,7 +156,10 @@ export function validateReleaseOperation(value) {
       ? !(
           value.role === "backend" &&
           value.unit === releaseMonitoringUnit &&
-          value.environment === "prod" &&
+          (value.environment === value.monitoring_environment ||
+            // Existing v1 release journals put staging monitoring in prod.
+            (value.environment === "prod" &&
+              value.monitoring_environment === "staging")) &&
           releaseMonitoringEnvironments.includes(value.monitoring_environment)
         )
       : Object.hasOwn(value, "monitoring_environment"))
