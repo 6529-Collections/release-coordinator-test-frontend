@@ -103,12 +103,16 @@ export async function runSandboxReleaseOperation(
   };
 
   if (operation.operation === "monitoring")
-    // The real backend deploys monitoring only from commits on main; the
-    // sample workflow keeps that rule so the ordering proof stays honest.
+    // The dispatch branch follows the release environment. Version 1 saved
+    // operations keep their prod-stage source for journal compatibility.
     await check("monitoring:source", () => {
-      if (ref !== "refs/heads/main")
+      const expectedRef =
+        operation.environment === "staging"
+          ? "refs/heads/1a-staging"
+          : "refs/heads/main";
+      if (ref !== expectedRef)
         throw new Error(
-          "Sample monitoring deploys only from the test main branch."
+          `Sample monitoring for ${operation.environment} deploys only from ${expectedRef}.`
         );
     });
 
