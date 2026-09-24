@@ -1,3 +1,4 @@
 original
 product workflow adapter success frontend
 branch-aligned monitoring success frontend 2026-09-23
+branch-aligned monitoring staging failure companion 2026-09-23
